@@ -19,7 +19,6 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gopkg.in/yaml.v2"
@@ -90,15 +89,17 @@ func newBucket(ctx context.Context, logger log.Logger, gc Config, opts []option.
 		err       error
 		gcsClient *storage.Client
 	)
-	if gc.UseGRPC {
-		opts = append(opts,
-			option.WithGRPCDialOption(grpc.WithRecvBufferPool(grpc.NewSharedBufferPool())),
-			option.WithGRPCConnectionPool(gc.GRPCConnPoolSize),
-		)
-		gcsClient, err = storage.NewGRPCClient(ctx, opts...)
-	} else {
-		gcsClient, err = storage.NewClient(ctx, opts...)
-	}
+	/*
+		if gc.UseGRPC {
+			opts = append(opts,
+				option.WithGRPCDialOption(grpc.WithRecvBufferPool(grpc.NewSharedBufferPool())),
+				option.WithGRPCConnectionPool(gc.GRPCConnPoolSize),
+			)
+			gcsClient, err = storage.NewGRPCClient(ctx, opts...)
+		} else {
+	*/
+	gcsClient, err = storage.NewClient(ctx, opts...)
+	//}
 	if err != nil {
 		return nil, err
 	}

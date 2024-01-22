@@ -204,3 +204,8 @@ func (b *Bucket) Delete(ctx context.Context, name string) error {
 
 	return err
 }
+
+// IsAccessDeniedErr returns true if access to object is denied.
+func (b *Bucket) IsAccessDeniedErr(err error) bool {
+	return false
+}

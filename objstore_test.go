@@ -20,7 +20,7 @@ import (
 )
 
 func TestMetricBucket_Close(t *testing.T) {
-	bkt := BucketWithMetrics("abc", NewInMemBucket(), nil)
+	bkt := WrapWithMetrics(NewInMemBucket(), nil, "abc")
 	// Expected initialized metrics.
 	testutil.Equals(t, 7, promtest.CollectAndCount(bkt.ops))
 	testutil.Equals(t, 7, promtest.CollectAndCount(bkt.opsFailures))
@@ -72,35 +72,22 @@ func TestMetricBucket_Close(t *testing.T) {
 	testutil.Assert(t, promtest.ToFloat64(bkt.lastSuccessfulUploadTime) > lastUpload)
 }
 
-func TestTracingReader(t *testing.T) {
-	r := bytes.NewReader([]byte("hello world"))
-	tr := newTracingReadCloser(NopCloserWithSize(r), nil)
+// TestMetricBucket_MultipleClients tests that the metrics from two different buckets clients are not conflicting with each other.
+func TestMetricBucket_Multiple_Clients(t *testing.T) {
+	reg := prometheus.NewPedanticRegistry()
 
-	size, err := TryToGetSize(tr)
-
-	testutil.Ok(t, err)
-	testutil.Equals(t, int64(11), size)
-
-	smallBuf := make([]byte, 4)
-	n, err := io.ReadFull(tr, smallBuf)
-	testutil.Ok(t, err)
-	testutil.Equals(t, 4, n)
-
-	// Verify that size is still the same, after reading 4 bytes.
-	size, err = TryToGetSize(tr)
-
-	testutil.Ok(t, err)
-	testutil.Equals(t, int64(11), size)
+	WrapWithMetrics(NewInMemBucket(), reg, "abc")
+	WrapWithMetrics(NewInMemBucket(), reg, "def")
 }
 
 func TestDownloadUploadDirConcurrency(t *testing.T) {
 	r := prometheus.NewRegistry()
-	m := BucketWithMetrics("", NewInMemBucket(), r)
+	m := WrapWithMetrics(NewInMemBucket(), r, "")
 	tempDir := t.TempDir()
 
 	testutil.Ok(t, m.Upload(context.Background(), "dir/obj1", bytes.NewReader([]byte("1"))))
 	testutil.Ok(t, m.Upload(context.Background(), "dir/obj2", bytes.NewReader([]byte("2"))))
-	testutil.Ok(t, m.Upload(context.Background(), "dir/obj3", bytes.NewReader([]byte("3"))))
+	testutil.Ok(t, m.Upload(context.Background(), "dir/obj3", bytes.NewReader(bytes.Repeat([]byte("3"), 1024*1024))))
 
 	testutil.Ok(t, promtest.GatherAndCompare(r, strings.NewReader(`
 		# HELP objstore_bucket_operations_total Total number of all attempted operations against a bucket.
@@ -131,16 +118,78 @@ func TestDownloadUploadDirConcurrency(t *testing.T) {
 		`), `objstore_bucket_operations_total`))
 
 	testutil.Ok(t, promtest.GatherAndCompare(r, strings.NewReader(`
-		# HELP objstore_bucket_operation_fetched_bytes_total Total number of bytes fetched from bucket, per operation.
+        # HELP objstore_bucket_operation_fetched_bytes_total Total number of bytes fetched from bucket, per operation.
         # TYPE objstore_bucket_operation_fetched_bytes_total counter
         objstore_bucket_operation_fetched_bytes_total{bucket="",operation="attributes"} 0
         objstore_bucket_operation_fetched_bytes_total{bucket="",operation="delete"} 0
         objstore_bucket_operation_fetched_bytes_total{bucket="",operation="exists"} 0
-        objstore_bucket_operation_fetched_bytes_total{bucket="",operation="get"} 3
+        objstore_bucket_operation_fetched_bytes_total{bucket="",operation="get"} 1.048578e+06
         objstore_bucket_operation_fetched_bytes_total{bucket="",operation="get_range"} 0
         objstore_bucket_operation_fetched_bytes_total{bucket="",operation="iter"} 0
         objstore_bucket_operation_fetched_bytes_total{bucket="",operation="upload"} 0
 		`), `objstore_bucket_operation_fetched_bytes_total`))
+
+	testutil.Ok(t, promtest.GatherAndCompare(r, strings.NewReader(`
+        # HELP objstore_bucket_operation_transferred_bytes Number of bytes transferred from/to bucket per operation.
+        # TYPE objstore_bucket_operation_transferred_bytes histogram
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="32768"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="65536"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="131072"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="262144"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="524288"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="1.048576e+06"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="2.097152e+06"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="4.194304e+06"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="8.388608e+06"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="1.6777216e+07"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="3.3554432e+07"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="6.7108864e+07"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="1.34217728e+08"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="2.68435456e+08"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="5.36870912e+08"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="1.073741824e+09"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get",le="+Inf"} 3
+        objstore_bucket_operation_transferred_bytes_sum{bucket="",operation="get"} 1.048578e+06
+        objstore_bucket_operation_transferred_bytes_count{bucket="",operation="get"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="32768"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="65536"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="131072"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="262144"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="524288"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="1.048576e+06"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="2.097152e+06"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="4.194304e+06"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="8.388608e+06"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="1.6777216e+07"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="3.3554432e+07"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="6.7108864e+07"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="1.34217728e+08"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="2.68435456e+08"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="5.36870912e+08"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="1.073741824e+09"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="get_range",le="+Inf"} 0
+        objstore_bucket_operation_transferred_bytes_sum{bucket="",operation="get_range"} 0
+        objstore_bucket_operation_transferred_bytes_count{bucket="",operation="get_range"} 0
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="32768"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="65536"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="131072"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="262144"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="524288"} 2
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="1.048576e+06"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="2.097152e+06"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="4.194304e+06"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="8.388608e+06"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="1.6777216e+07"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="3.3554432e+07"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="6.7108864e+07"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="1.34217728e+08"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="2.68435456e+08"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="5.36870912e+08"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="1.073741824e+09"} 3
+        objstore_bucket_operation_transferred_bytes_bucket{bucket="",operation="upload",le="+Inf"} 3
+        objstore_bucket_operation_transferred_bytes_sum{bucket="",operation="upload"} 1.048578e+06
+        objstore_bucket_operation_transferred_bytes_count{bucket="",operation="upload"} 3
+		`), `objstore_bucket_operation_transferred_bytes`))
 
 	testutil.Ok(t, UploadDir(context.Background(), log.NewNopLogger(), m, tempDir, "/dir-copy", WithUploadConcurrency(10)))
 
@@ -158,14 +207,13 @@ func TestDownloadUploadDirConcurrency(t *testing.T) {
 }
 
 func TestTimingTracingReader(t *testing.T) {
-	m := BucketWithMetrics("", NewInMemBucket(), nil)
+	m := WrapWithMetrics(NewInMemBucket(), nil, "")
 	r := bytes.NewReader([]byte("hello world"))
 
 	tr := NopCloserWithSize(r)
 	tr = newTimingReadCloser(tr, "", m.opsDuration, m.opsFailures, func(err error) bool {
 		return false
-	}, m.opsFetchedBytes)
-	tr = newTracingReadCloser(tr, nil)
+	}, m.opsFetchedBytes, m.opsTransferredBytes)
 
 	size, err := TryToGetSize(tr)
 
@@ -182,6 +230,58 @@ func TestTimingTracingReader(t *testing.T) {
 
 	testutil.Ok(t, err)
 	testutil.Equals(t, int64(11), size)
+}
+
+func TestUploadKeepsSeekerObj(t *testing.T) {
+	r := prometheus.NewRegistry()
+	m := seekerTestBucket{
+		Bucket: WrapWithMetrics(NewInMemBucket(), r, ""),
+	}
+
+	testutil.Ok(t, m.Upload(context.Background(), "dir/obj1", bytes.NewReader([]byte("1"))))
+}
+
+// seekerBucket implements Bucket and checks if io.Reader is still seekable.
+type seekerTestBucket struct {
+	Bucket
+}
+
+func (b seekerTestBucket) Upload(ctx context.Context, name string, r io.Reader) error {
+	_, ok := r.(io.Seeker)
+	if !ok {
+		return errors.New("Reader was supposed to be seekable")
+	}
+
+	return nil
+}
+
+func TestTimingTracingReaderSeeker(t *testing.T) {
+	m := WrapWithMetrics(NewInMemBucket(), nil, "")
+	r := bytes.NewReader([]byte("hello world"))
+
+	tr := nopSeekerCloserWithSize(r).(io.ReadCloser)
+	tr = newTimingReadCloser(tr, "", m.opsDuration, m.opsFailures, func(err error) bool {
+		return false
+	}, m.opsFetchedBytes, m.opsTransferredBytes)
+
+	size, err := TryToGetSize(tr)
+
+	testutil.Ok(t, err)
+	testutil.Equals(t, int64(11), size)
+
+	smallBuf := make([]byte, 4)
+	n, err := io.ReadFull(tr, smallBuf)
+	testutil.Ok(t, err)
+	testutil.Equals(t, 4, n)
+
+	// Verify that size is still the same, after reading 4 bytes.
+	size, err = TryToGetSize(tr)
+
+	testutil.Ok(t, err)
+	testutil.Equals(t, int64(11), size)
+
+	_, ok := tr.(io.Seeker)
+	testutil.Equals(t, true, ok)
 }
 
 func TestDownloadDir_CleanUp(t *testing.T) {

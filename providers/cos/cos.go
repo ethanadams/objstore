@@ -364,6 +364,11 @@ func (b *Bucket) IsObjNotFoundErr(err error) bool {
 	}
 }
 
+// IsAccessDeniedErr returns true if access to object is denied.
+func (b *Bucket) IsAccessDeniedErr(_ error) bool {
+	return false
+}
+
 func (b *Bucket) Close() error { return nil }
 
 type objectInfo struct {

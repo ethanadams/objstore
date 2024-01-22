@@ -110,8 +110,7 @@ func (b *Bucket) Iter(ctx context.Context, dir string, f func(string) error, opt
 
 // Get returns a reader for the given object name.
 func (b *Bucket) Get(ctx context.Context, name string) (io.ReadCloser, error) {
-	_ = level.Debug(b.logger).Log("Getting attributes %s from Storj Bucket", name)
-
+	_ = level.Debug(b.logger).Log("msg", "Getting object from Storj bucket", "name", name)
 	options := uplink.DownloadOptions{}
 
 	download, err := b.project.DownloadObject(fpath.WithTempData(ctx, "", true), b.bucket.Name, name, &options)
@@ -124,7 +123,7 @@ func (b *Bucket) Get(ctx context.Context, name string) (io.ReadCloser, error) {
 
 // GetRange returns a reader to the range for the given object name.
 func (b *Bucket) GetRange(ctx context.Context, name string, off, length int64) (io.ReadCloser, error) {
-	_ = level.Debug(b.logger).Log("Getting range of %s from Storj Bucket", name)
+	_ = level.Debug(b.logger).Log("msg", "Getting range from Storj bucket", "name", name)
 
 	options := uplink.DownloadOptions{
 		Offset: off,
@@ -141,7 +140,7 @@ func (b *Bucket) GetRange(ctx context.Context, name string, off, length int64) (
 
 // Exists returns whether the object with the given name exists or not.
 func (b *Bucket) Exists(ctx context.Context, name string) (bool, error) {
-	_ = level.Debug(b.logger).Log("Ensuring %s exists in Storj Bucket", name)
+	_ = level.Debug(b.logger).Log("msg", "Ensuring object exists in Storj bucket", "name", name)
 	_, err := b.project.StatObject(fpath.WithTempData(ctx, "", true), b.bucket.Name, name)
 	if err != nil {
 		if b.IsObjNotFoundErr(err) {
@@ -158,7 +157,7 @@ func (b *Bucket) IsObjNotFoundErr(err error) bool {
 
 // Attributes returns information about the specified object.
 func (b *Bucket) Attributes(ctx context.Context, name string) (objstore.ObjectAttributes, error) {
-	_ = level.Debug(b.logger).Log("Getting attributes %s from Storj Bucket", name)
+	_ = level.Debug(b.logger).Log("msg", "Getting attributes for a Storj bucket", "name", name)
 
 	attr := objstore.ObjectAttributes{}
 
@@ -177,7 +176,7 @@ func (b *Bucket) Attributes(ctx context.Context, name string) (objstore.ObjectAt
 func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
 	var uploadOptions *uplink.UploadOptions
 
-	_ = level.Debug(b.logger).Log("Uploading %s to Storj Bucket", name)
+	_ = level.Debug(b.logger).Log("msg", "Uploading to Storj a bucket", "name", name)
 
 	writer, err := b.project.UploadObject(fpath.WithTempData(ctx, "", true), b.bucket.Name, name, uploadOptions)
 	if err != nil {
@@ -198,7 +197,7 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
 func (b *Bucket) Delete(ctx context.Context, name string) error {
 	var err error
 
-	_ = level.Debug(b.logger).Log("Deleting %s from Storj Bucket", name)
+	_ = level.Debug(b.logger).Log("msg", "Deleting from a Storj bucket", "name", name)
 
 	_, err = b.project.DeleteObject(fpath.WithTempData(ctx, "", true), b.bucket.Name, name)
 

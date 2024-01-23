@@ -199,7 +199,7 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
 func (b *Bucket) Delete(ctx context.Context, name string) error {
 	var err error
 
-	_ = level.Debug(b.logger).Log("msg", "deleting from a Storj bucket", "name", name)
+	_ = level.Info(b.logger).Log("msg", "deleting from a Storj bucket", "name", name)
 
 	_, err = b.project.DeleteObject(fpath.WithTempData(ctx, "", true), b.bucket.Name, name)
 
